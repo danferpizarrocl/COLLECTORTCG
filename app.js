@@ -23,6 +23,11 @@ var LANGS = [
 ];
 var POKE = { Riolu: { en: 'Riolu', ja: 'リオル' }, Lucario: { en: 'Lucario', ja: 'ルカリオ' } };
 var KEY = 'myctcg.estado.v1';
+var SERIES_ES = {
+  base: 'Base', gym: 'Gimnasio', neo: 'Neo', lc: 'Colección Legendaria', ecard: 'E-Card', ex: 'EX', pop: 'POP', col: 'Colección Call of Legends',
+  dp: 'Diamante y Perla', pl: 'Platino', hgss: 'HeartGold y SoulSilver', bw: 'Negro y Blanco', xy: 'XY', sm: 'Sol y Luna',
+  swsh: 'Espada y Escudo', sv: 'Escarlata y Violeta', me: 'Megaevolución', tk: 'Kits de entrenador', misc: 'Otros', p: 'Promos'
+};
 
 var ICON = {
   home: '<path d="M3 11l9-8 9 8M5 10v10h14V10"/>',
@@ -154,11 +159,11 @@ function imgSrc(base, size) { return base ? base + '/' + (size || 'low') + '.web
 function setIdOf(id) { var i = String(id).lastIndexOf('-'); return i > 0 ? String(id).slice(0, i) : null; }
 var dateBusy = false;
 function ensureDates() {
-  S.setDates = S.setDates || {};
+  S.setInfo = S.setInfo || {};
   if (dateBusy) return;
   var todo = [];
   S.cards.forEach(function (c) {
-    if (c.date || c.dateMiss || !c.ids) return;
+    if (!c.ids || ((c.date || c.dateMiss) && c.serieDone)) return;
     var lang = c.ids.en ? 'en' : (c.ids.ja ? 'ja' : null);
     var sid = lang ? setIdOf(c.ids[lang]) : null;
     if (sid) todo.push({ c: c, lang: lang, sid: sid, key: lang + '|' + sid });
@@ -166,27 +171,37 @@ function ensureDates() {
   if (!todo.length) return;
   dateBusy = true;
   var i = 0, changed = false, offline = false;
-  function apply(c, dt) { if (dt) c.date = dt; else c.dateMiss = true; changed = true; }
+  function apply(c, info) {
+    if (info.d) c.date = info.d; else c.dateMiss = true;
+    if (info.sn || info.sid) { c.serie = info.sn; c.serieId = info.sid; }
+    if (info.nm && !c.setName) c.setName = info.nm;
+    c.serieDone = true; changed = true;
+  }
   function finish() {
     dateBusy = false;
     if (changed) { save(); if (view.name === 'home') render(); }
   }
   function next() {
     if (i >= todo.length || offline) return finish();
-    var j = todo[i++], known = S.setDates[j.key];
+    var j = todo[i++], known = S.setInfo[j.key];
     if (known !== undefined) { apply(j.c, known); return next(); }
     fetchJSON(API + j.lang + '/sets/' + encodeURIComponent(j.sid)).then(function (d) {
-      var dt = d && d.releaseDate ? String(d.releaseDate).slice(0, 10) : '';
-      S.setDates[j.key] = dt; apply(j.c, dt);
+      var info = {
+        d: d && d.releaseDate ? String(d.releaseDate).slice(0, 10) : '',
+        sid: d && d.serie && d.serie.id ? String(d.serie.id) : '',
+        sn: d && d.serie && d.serie.name ? String(d.serie.name) : '',
+        nm: d && d.name ? String(d.name) : ''
+      };
+      S.setInfo[j.key] = info; apply(j.c, info);
     }).catch(function (e) {
       if (e && e.network) offline = true;
-      else { S.setDates[j.key] = ''; apply(j.c, ''); }
+      else { var none = { d: '', sid: '', sn: '' }; S.setInfo[j.key] = none; apply(j.c, none); }
     }).then(next);
   }
   next();
 }
-function sortedCards(list) {
-  var m = S.sort || 'added';
+function sortedCards(list) { return sortedCardsBy(list, S.sort || 'added'); }
+function sortedCardsBy(list, m) {
   if (m === 'added') return list;
   var dir = m === 'old' ? 1 : -1;
   return list.map(function (c, i) { return { c: c, i: i }; }).sort(function (a, b) {
@@ -199,11 +214,46 @@ function sortedCards(list) {
   }).map(function (x) { return x.c; });
 }
 
+function blockKey(c) { return c.serieId || (c.serie ? 'n:' + c.serie : ''); }
+function blockName(c) { return (c.serieId && SERIES_ES[c.serieId]) || c.serie || 'Sin bloque'; }
+function blocksHtml(list) {
+  var groups = {}, order = [];
+  list.forEach(function (c) {
+    var k = blockKey(c) || '_none';
+    if (!groups[k]) { groups[k] = { name: blockName(c), cards: [], date: '' }; order.push(k); }
+    groups[k].cards.push(c);
+    if (c.date && (!groups[k].date || c.date < groups[k].date)) groups[k].date = c.date;
+  });
+  order.sort(function (a, b) {
+    var da = groups[a].date, db = groups[b].date;
+    if (a === '_none') return 1;
+    if (b === '_none') return -1;
+    if (!da && !db) return 0;
+    if (!da) return 1;
+    if (!db) return -1;
+    return da < db ? -1 : (da > db ? 1 : 0);
+  });
+  return order.map(function (k) {
+    var g = groups[k], cards = sortedCardsBy(g.cards, 'old'), langsTotal = 0;
+    cards.forEach(function (c) { LANGS.forEach(function (l) { if (c.have && c.have[l.c]) langsTotal++; }); });
+    var rows = cards.map(function (c) {
+      var on = LANGS.filter(function (l) { return c.have && c.have[l.c]; }).map(function (l) {
+        return '<span class="badge have' + (l.c === 'ja' ? ' ja' : (l.c === 'en' ? '' : ' x')) + '">' + l.s + '</span>';
+      }).join('');
+      return '<button class="brow" data-act="open" data-id="' + c.uid + '"><div style="min-width:0"><div class="tname">' + esc(c.name) + (c.number ? ' <span>' + esc(c.number) + '</span>' : '') + '</div>' +
+        '<div class="muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(c.setName || (c.meta && c.meta.setName) || 'Edición sin datos') + '</div></div>' +
+        '<div class="badges" style="justify-content:flex-end">' + (on || '<span class="muted">sin idioma marcado</span>') + '</div></button>';
+    }).join('');
+    return '<div class="card">' + cardTitle('layers', g.name) +
+      '<p class="note" style="margin:0 0 8px">' + cards.length + (cards.length === 1 ? ' carta' : ' cartas') + ' · ' + langsTotal + (langsTotal === 1 ? ' idioma marcado' : ' idiomas marcados') + '</p>' + rows + '</div>';
+  }).join('');
+}
+
 /* ============ Navegación ============ */
 var view = { name: 'home' };
 var SV = { pk: 'Riolu', lang: 'en', extra: '', q: 'Riolu', auto: true, results: null, status: '', err: false, shown: 0, link: null, busy: false };
 var COV = { rows: null, busy: false, all: false };
-var AV = { pk: 'Riolu', langs: { en: true, ja: true }, photos: {}, name: '', set: '', num: '', msg: '' };
+var AV = { pk: 'Riolu', langs: { en: true, ja: true }, photos: {}, name: '', set: '', block: '', num: '', msg: '' };
 var observer = null;
 
 function go(name, params) {
@@ -260,13 +310,19 @@ function vHome() {
   var chips = [['all', 'Todos'], ['Riolu', 'Riolu'], ['Lucario', 'Lucario'], ['Otro', 'Otros']].map(function (x) {
     return '<button class="chip' + (f === x[0] ? ' on' : '') + '" data-act="filter" data-v="' + x[0] + '">' + x[1] + '</button>';
   }).join('');
+  var tab = S.tab === 'blocks' ? 'blocks' : 'cards';
+  var tabs = '<div class="chips">' + [['cards', 'Cartas'], ['blocks', 'Bloques']].map(function (x) {
+    return '<button class="chip' + (tab === x[0] ? ' on' : '') + '" data-act="tab" data-v="' + x[0] + '">' + x[1] + '</button>';
+  }).join('') + '</div>';
   list = sortedCards(list);
   var sortBy = S.sort || 'added';
   var sorts = [['added', 'Como las agregué'], ['old', 'Más vieja → más nueva'], ['new', 'Más nueva → más vieja']].map(function (x) {
     return '<button class="chip' + (sortBy === x[0] ? ' on' : '') + '" data-act="sort" data-v="' + x[0] + '">' + x[1] + '</button>';
   }).join('');
   var body;
-  if (!S.cards.length) {
+  if (tab === 'blocks' && list.length) {
+    body = blocksHtml(list);
+  } else if (!S.cards.length) {
     body = '<div class="card empty"><p>Aún no tienes cartas. Busca una en TCGdex o agrégala a mano con tu foto.</p>' +
       '<div class="row" style="justify-content:center"><button class="btn primary" data-act="nav" data-v="search">' + svg('search') + 'Buscar cartas</button>' +
       '<button class="btn" data-act="nav" data-v="add">' + svg('plus') + 'Agregar a mano</button></div></div>';
@@ -281,8 +337,8 @@ function vHome() {
     }).join('') + '</div>';
   }
   return '<div class="top"><div><small>' + esc(APP_NAME) + '</small><h1>Mi colección</h1></div><span class="count">' + S.cards.length + (S.cards.length === 1 ? ' carta' : ' cartas') + '</span></div>' +
-    '<div class="chips">' + chips + '</div>' +
-    '<div class="muted" style="margin:0 0 6px">Ordenar</div><div class="chips">' + sorts + '</div>' + body;
+    tabs + '<div class="chips">' + chips + '</div>' +
+    (tab === 'cards' ? '<div class="muted" style="margin:0 0 6px">Ordenar</div><div class="chips">' + sorts + '</div>' : '') + body;
 }
 
 function pkChips(sel, act) {
@@ -404,6 +460,7 @@ function vAdd() {
     '<div class="chips">' + pkChips(AV.pk, 'apk') + '</div>' +
     '<label class="f" for="an">Nombre de la carta</label><input class="in" id="an" value="' + esc(AV.name) + '" autocomplete="off">' +
     '<label class="f" for="as">Edición o promo</label><input class="in" id="as" value="' + esc(AV.set) + '" autocomplete="off" placeholder="Ej.: nombre de la edición">' +
+    '<label class="f" for="ab">Bloque (opcional)</label><input class="in" id="ab" value="' + esc(AV.block) + '" autocomplete="off" placeholder="Ej.: Diamante y Perla">' +
     '<label class="f" for="anum">Número</label><input class="in" id="anum" value="' + esc(AV.num) + '" autocomplete="off" placeholder="Ej.: 013/198">' +
     '<label class="f">Idiomas en que la tengo</label><div class="chips">' + langChips + '</div>' +
     '<label class="f">Foto de la carta</label>' + (photoRows || '<p class="muted">Elige al menos un idioma.</p>') +
@@ -613,11 +670,16 @@ function runCoverage() {
 
 function saveManual() {
   var name = ($('#an').value || '').trim();
-  AV.name = name; AV.set = ($('#as').value || '').trim(); AV.num = ($('#anum').value || '').trim();
+  AV.name = name; AV.set = ($('#as').value || '').trim(); AV.block = ($('#ab').value || '').trim(); AV.num = ($('#anum').value || '').trim();
   var langs = LANGS.filter(function (l) { return AV.langs[l.c]; }).map(function (l) { return l.c; });
   if (!name) { AV.msg = 'Falta el nombre de la carta.'; render(); return; }
   if (!langs.length) { AV.msg = 'Elige al menos un idioma.'; render(); return; }
   var c = { uid: uid(), pokemon: AV.pk, name: name, number: AV.num, setName: AV.set, ids: {}, imgs: {}, have: {}, photos: {}, unlocked: false, manual: true };
+  if (AV.block) {
+    var bid = '';
+    Object.keys(SERIES_ES).forEach(function (k) { if (SERIES_ES[k].toLowerCase() === AV.block.toLowerCase()) bid = k; });
+    c.serie = bid ? SERIES_ES[bid] : AV.block; c.serieId = bid; c.serieDone = true;
+  }
   var jobs = langs.map(function (l) {
     c.have[l] = true;
     if (AV.photos[l]) { c.photos[l] = true; return fotoPut(c.uid + '|' + l, AV.photos[l]); }
@@ -627,7 +689,7 @@ function saveManual() {
     var extras = langs.some(function (l) { return !langOf(l).base; });
     if (extras) c.unlocked = true;
     S.cards.unshift(c); save();
-    AV = { pk: AV.pk, langs: { en: true, ja: true }, photos: {}, name: '', set: '', num: '', msg: '' };
+    AV = { pk: AV.pk, langs: { en: true, ja: true }, photos: {}, name: '', set: '', block: '', num: '', msg: '' };
     go('detail', { id: c.uid });
   }).catch(function () { AV.msg = 'No pude guardar las fotos en el teléfono.'; render(); });
 }
@@ -691,6 +753,7 @@ document.addEventListener('click', function (ev) {
         var sr = $('.lrow.sel'); if (sr && sr.scrollIntoView) sr.scrollIntoView({ block: 'start' });
       } break;
     case 'sort': S.sort = v; save(); render(); break;
+    case 'tab': S.tab = v; save(); render(); break;
     case 'have': if (c) { c.have = c.have || {}; c.have[lang] = !c.have[lang]; save(); render(); } break;
     case 'unlock': if (c) { c.unlocked = true; if (c.miss) c.miss = {}; save(); render(); } break;
     case 'lock': if (c) { c.unlocked = false; save(); render(); } break;
@@ -714,8 +777,8 @@ document.addEventListener('click', function (ev) {
 });
 function syncAdd() {
   if (view.name !== 'add') return;
-  var n = $('#an'), s = $('#as'), m = $('#anum');
-  if (n) AV.name = n.value; if (s) AV.set = s.value; if (m) AV.num = m.value;
+  var n = $('#an'), s = $('#as'), m = $('#anum'), b = $('#ab');
+  if (n) AV.name = n.value; if (s) AV.set = s.value; if (m) AV.num = m.value; if (b) AV.block = b.value;
 }
 document.addEventListener('change', function (ev) {
   var t = ev.target;

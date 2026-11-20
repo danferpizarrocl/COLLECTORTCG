@@ -63,7 +63,7 @@ function load() {
     var s = JSON.parse(localStorage.getItem(KEY) || 'null');
     if (s && Array.isArray(s.cards)) return s;
   } catch (e) {}
-  return { cards: [], pk: 'Riolu', filter: 'all' };
+  return { cards: [], pk: 'Riolu', filter: 'all', sort: 'added', setDates: {} };
 }
 var S = load();
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
@@ -150,6 +150,55 @@ function apiSearch(lang, name) { return fetchJSON(API + lang + '/cards?name=' + 
 function apiCard(lang, id) { return fetchJSON(API + lang + '/cards/' + encodeURIComponent(id)); }
 function imgSrc(base, size) { return base ? base + '/' + (size || 'low') + '.webp' : null; }
 
+/* ============ Fecha de lanzamiento (para ordenar) ============ */
+function setIdOf(id) { var i = String(id).lastIndexOf('-'); return i > 0 ? String(id).slice(0, i) : null; }
+var dateBusy = false;
+function ensureDates() {
+  S.setDates = S.setDates || {};
+  if (dateBusy) return;
+  var todo = [];
+  S.cards.forEach(function (c) {
+    if (c.date || c.dateMiss || !c.ids) return;
+    var lang = c.ids.en ? 'en' : (c.ids.ja ? 'ja' : null);
+    var sid = lang ? setIdOf(c.ids[lang]) : null;
+    if (sid) todo.push({ c: c, lang: lang, sid: sid, key: lang + '|' + sid });
+  });
+  if (!todo.length) return;
+  dateBusy = true;
+  var i = 0, changed = false, offline = false;
+  function apply(c, dt) { if (dt) c.date = dt; else c.dateMiss = true; changed = true; }
+  function finish() {
+    dateBusy = false;
+    if (changed) { save(); if (view.name === 'home') render(); }
+  }
+  function next() {
+    if (i >= todo.length || offline) return finish();
+    var j = todo[i++], known = S.setDates[j.key];
+    if (known !== undefined) { apply(j.c, known); return next(); }
+    fetchJSON(API + j.lang + '/sets/' + encodeURIComponent(j.sid)).then(function (d) {
+      var dt = d && d.releaseDate ? String(d.releaseDate).slice(0, 10) : '';
+      S.setDates[j.key] = dt; apply(j.c, dt);
+    }).catch(function (e) {
+      if (e && e.network) offline = true;
+      else { S.setDates[j.key] = ''; apply(j.c, ''); }
+    }).then(next);
+  }
+  next();
+}
+function sortedCards(list) {
+  var m = S.sort || 'added';
+  if (m === 'added') return list;
+  var dir = m === 'old' ? 1 : -1;
+  return list.map(function (c, i) { return { c: c, i: i }; }).sort(function (a, b) {
+    var da = a.c.date || '', db = b.c.date || '';
+    if (!da && !db) return a.i - b.i;
+    if (!da) return 1;
+    if (!db) return -1;
+    if (da === db) return a.i - b.i;
+    return da < db ? -dir : dir;
+  }).map(function (x) { return x.c; });
+}
+
 /* ============ Navegación ============ */
 var view = { name: 'home' };
 var SV = { pk: 'Riolu', lang: 'en', extra: '', q: 'Riolu', auto: true, results: null, status: '', err: false, shown: 0, link: null, busy: false };
@@ -211,6 +260,11 @@ function vHome() {
   var chips = [['all', 'Todos'], ['Riolu', 'Riolu'], ['Lucario', 'Lucario'], ['Otro', 'Otros']].map(function (x) {
     return '<button class="chip' + (f === x[0] ? ' on' : '') + '" data-act="filter" data-v="' + x[0] + '">' + x[1] + '</button>';
   }).join('');
+  list = sortedCards(list);
+  var sortBy = S.sort || 'added';
+  var sorts = [['added', 'Como las agregué'], ['old', 'Más vieja → más nueva'], ['new', 'Más nueva → más vieja']].map(function (x) {
+    return '<button class="chip' + (sortBy === x[0] ? ' on' : '') + '" data-act="sort" data-v="' + x[0] + '">' + x[1] + '</button>';
+  }).join('');
   var body;
   if (!S.cards.length) {
     body = '<div class="card empty"><p>Aún no tienes cartas. Busca una en TCGdex o agrégala a mano con tu foto.</p>' +
@@ -222,11 +276,13 @@ function vHome() {
     body = '<div class="grid">' + list.map(function (c) {
       return '<button class="tile" data-act="open" data-id="' + c.uid + '">' + artHtml(cardThumbSrc(c), c.name) +
         '<div class="tname">' + esc(c.name) + (c.number ? ' <span>' + esc(c.number) + '</span>' : '') + '</div>' +
-        '<div class="badges">' + badgesHtml(c) + '</div></button>';
+        '<div class="badges">' + badgesHtml(c) + '</div>' +
+        (sortBy !== 'added' && !c.date ? '<div class="muted" style="font-size:11px">sin fecha</div>' : '') + '</button>';
     }).join('') + '</div>';
   }
   return '<div class="top"><div><small>' + esc(APP_NAME) + '</small><h1>Mi colección</h1></div><span class="count">' + S.cards.length + (S.cards.length === 1 ? ' carta' : ' cartas') + '</span></div>' +
-    '<div class="chips">' + chips + '</div>' + body;
+    '<div class="chips">' + chips + '</div>' +
+    '<div class="muted" style="margin:0 0 6px">Ordenar</div><div class="chips">' + sorts + '</div>' + body;
 }
 
 function pkChips(sel, act) {
@@ -269,7 +325,8 @@ function vSearch() {
     '<p class="note">Para el japonés escribe el nombre en japonés (ya viene puesto para Riolu y Lucario).</p></div>' + res;
 }
 
-function frameHtml(c, code) {
+var DL = {};
+function frameHtml(c, code, single) {
   var l = langOf(code), has = c.have && c.have[code];
   var src = '';
   if (c.photos && c.photos[code]) src = { photo: c.uid + '|' + code };
@@ -286,11 +343,23 @@ function frameHtml(c, code) {
   var acts = '<button class="btn small" data-act="upload" data-id="' + c.uid + '" data-lang="' + code + '">' + svg('img', 18) + (c.photos && c.photos[code] ? 'Cambiar mi foto' : 'Subir mi foto') + '</button>' +
     '<button class="btn small" data-act="linkstart" data-id="' + c.uid + '" data-lang="' + code + '">' + svg('search', 18) + 'Buscar en ' + esc(l.n) + '</button>' +
     (c.photos && c.photos[code] ? '<button class="btn small danger" data-act="rmfoto" data-id="' + c.uid + '" data-lang="' + code + '">Quitar foto</button>' : '');
-  return '<section class="frame' + (has ? ' has' : '') + '"><div class="frame-head"><b>' + esc(l.n) + '</b>' +
-    '<button class="toggle' + (has ? ' on' : '') + '" data-act="have" data-id="' + c.uid + '" data-lang="' + code + '" aria-pressed="' + (has ? 'true' : 'false') + '"><span class="box">' + (has ? svg('check', 16, 3) : '') + '</span>La tengo</button></div>' +
+  var toggle = single ? '' : '<button class="toggle' + (has ? ' on' : '') + '" data-act="have" data-id="' + c.uid + '" data-lang="' + code + '" aria-pressed="' + (has ? 'true' : 'false') + '"><span class="box">' + (has ? svg('check', 16, 3) : '') + '</span>La tengo</button>';
+  return '<section' + (single ? ' id="bigframe"' : '') + ' class="frame' + (has ? ' has' : '') + '"><div class="frame-head"><b>' + esc(l.n) + '</b>' + toggle + '</div>' +
     '<div class="big">' + art + '</div>' +
     (msg ? '<p class="status">' + esc(msg) + '</p>' : '') +
     '<div class="row" style="justify-content:center">' + acts + '</div></section>';
+}
+
+function langListHtml(c, sel) {
+  return '<div class="card">' + cardTitle('globe', 'Marca los idiomas que tienes') + '<div class="langlist">' +
+    visibleLangs(c).map(function (code) {
+      var l = langOf(code), has = c.have && c.have[code];
+      var tags = ((c.photos && c.photos[code]) ? '<span class="tag">' + svg('img', 14) + 'mi foto</span>' : '') +
+        ((c.imgs && c.imgs[code]) ? '<span class="tag">' + svg('card', 14) + 'imagen</span>' : '');
+      return '<div class="lrow' + (sel === code ? ' sel' : '') + '">' +
+        '<button class="lname" data-act="sel" data-id="' + c.uid + '" data-lang="' + code + '" aria-label="Ver la carta en ' + esc(l.n) + '"><b>' + esc(l.n) + '</b><span class="tags">' + tags + '</span></button>' +
+        '<button class="toggle' + (has ? ' on' : '') + '" data-act="have" data-id="' + c.uid + '" data-lang="' + code + '" aria-pressed="' + (has ? 'true' : 'false') + '"><span class="box">' + (has ? svg('check', 16, 3) : '') + '</span>La tengo</button></div>';
+    }).join('') + '</div></div>';
 }
 
 function vDetail() {
@@ -303,7 +372,14 @@ function vDetail() {
     (m.logo ? '<img class="logo" src="' + esc(m.logo) + '" alt="Logo de la edición" onerror="this.remove()">' : '') +
     '<div><div class="sets">' + esc(c.setName || m.setName || 'Edición sin datos') + '</div>' +
     '<div class="muted">' + (c.number ? 'N.º ' + esc(c.number) : '') + (m.total ? ' / ' + esc(m.total) : '') + (m.rarity ? ' · ' + esc(m.rarity) : '') + '</div></div></div></div>';
-  var frames = visibleLangs(c).map(function (code) { return frameHtml(c, code); }).join('');
+  var frames;
+  if (c.unlocked) {
+    var sel = DL[c.uid];
+    if (visibleLangs(c).indexOf(sel) < 0) sel = 'en';
+    frames = frameHtml(c, sel, true) + langListHtml(c, sel);
+  } else {
+    frames = visibleLangs(c).map(function (code) { return frameHtml(c, code); }).join('');
+  }
   var lockBtn = c.unlocked
     ? '<button class="btn block" data-act="lock" data-id="' + c.uid + '">' + svg('lock') + 'Volver a inglés y japonés</button>'
     : '<button class="btn block gold-line" data-act="unlock" data-id="' + c.uid + '">' + svg('unlock') + 'Desbloquear todos los idiomas</button>';
@@ -470,7 +546,7 @@ function addFromResult(r) {
       lc.ids[SV.link.lang] = r.id;
       if (r.image) lc.imgs[SV.link.lang] = r.image;
       if (lc.miss) delete lc.miss[SV.link.lang];
-      save();
+      save(); ensureDates();
       var back = lc.uid; SV.link = null;
       go('detail', { id: back });
     }
@@ -483,7 +559,7 @@ function addFromResult(r) {
   card.ids[lang] = r.id;
   if (r.image) card.imgs[lang] = r.image;
   S.cards.unshift(card);
-  save();
+  save(); ensureDates();
   render();
 }
 
@@ -582,7 +658,7 @@ function importBackup(file) {
       if (!confirm('Esto reemplaza la colección de este teléfono por la del archivo. ¿Seguir?')) { msg.textContent = ''; return; }
       var keys = Object.keys(d.fotos || {});
       Promise.all(keys.map(function (k) { return fotoPut(k, dataURLToBlob(d.fotos[k])); })).then(function () {
-        S = d.estado; urlCache = {}; save(); msg.textContent = 'Colección recuperada.'; setTimeout(function () { go('home'); }, 600);
+        S = d.estado; urlCache = {}; save(); ensureDates(); msg.textContent = 'Colección recuperada.'; setTimeout(function () { go('home'); }, 600);
       });
     } catch (e) { msg.textContent = 'Ese archivo no es un respaldo de ' + APP_NAME + '.'; msg.className = 'status err'; }
   };
@@ -608,6 +684,9 @@ document.addEventListener('click', function (ev) {
       SV.auto = true; SV.q = ''; autoName(); if (!SV.q && c) SV.q = c.name; SV.results = null; SV.status = '';
       go('search'); break;
     case 'linkcancel': var back = SV.link && SV.link.uid; SV.link = null; back ? go('detail', { id: back }) : go('search'); break;
+    case 'sel':
+      if (c) { DL[c.uid] = lang; render(); var bf = $('#bigframe'); if (bf && bf.scrollIntoView) bf.scrollIntoView({ block: 'start' }); } break;
+    case 'sort': S.sort = v; save(); render(); break;
     case 'have': if (c) { c.have = c.have || {}; c.have[lang] = !c.have[lang]; save(); render(); } break;
     case 'unlock': if (c) { c.unlocked = true; if (c.miss) c.miss = {}; save(); render(); } break;
     case 'lock': if (c) { c.unlocked = false; save(); render(); } break;
@@ -667,6 +746,7 @@ function start() {
   var h = (location.hash || '').replace('#', '');
   if (['home', 'search', 'add', 'cov', 'backup'].indexOf(h) >= 0) view = { name: h };
   render();
+  ensureDates();
   setTimeout(function () { $('#splash').classList.add('hide'); }, 1100);
   if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
     navigator.serviceWorker.register('sw.js').then(function (reg) {

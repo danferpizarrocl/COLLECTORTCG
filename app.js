@@ -155,6 +155,37 @@ function apiSearch(lang, name) { return fetchJSON(API + lang + '/cards?name=' + 
 function apiCard(lang, id) { return fetchJSON(API + lang + '/cards/' + encodeURIComponent(id)); }
 function imgSrc(base, size) { return base ? base + '/' + (size || 'low') + '.webp' : null; }
 
+/* ============ Versiones de la carta ============ */
+var VERS = [
+  { k: 'normal', n: 'Normal', s: 'N' },
+  { k: 'reverse', n: 'Reverse holo', s: 'R' },
+  { k: 'holo', n: 'Holo', s: 'H' },
+  { k: 'sello', n: 'Reverse con sello (Pokébola / Master Ball)', s: 'RS' },
+  { k: 'logo', n: 'Edición con logo especial', s: 'LE' }
+];
+function versList() {
+  var out = VERS.slice();
+  (S.customVers || []).forEach(function (n) { out.push({ k: 'x:' + n, n: n, s: n.slice(0, 3) }); });
+  return out;
+}
+function versShort(c, code) {
+  var on = (c.vers && c.vers[code]) || {};
+  return versList().filter(function (v) { return on[v.k]; }).map(function (v) { return v.s; }).join('+');
+}
+function versHtml(c, code) {
+  var on = (c.vers && c.vers[code]) || {}, tv = c.variants || null, first = [], rest = [];
+  versList().forEach(function (v) {
+    var tcg = v.k === 'normal' || v.k === 'reverse' || v.k === 'holo';
+    if (tcg && (!tv || tv[v.k])) first.push(v); else rest.push(v);
+  });
+  return '<div class="vers"><div class="muted" style="margin-bottom:4px"><b>Versiones</b>' + (tv ? ' · primero las que existen según TCGdex' : '') + '</div>' +
+    first.concat(rest).map(function (v) {
+      var o = !!on[v.k];
+      return '<button class="vrow' + (o ? ' on' : '') + '" data-act="ver" data-id="' + c.uid + '" data-lang="' + code + '" data-k="' + esc(v.k) + '" aria-pressed="' + (o ? 'true' : 'false') + '"><span class="box">' + (o ? svg('check', 14, 3) : '') + '</span>' + esc(v.n) + '</button>';
+    }).join('') +
+    '<div class="row" style="margin-top:8px;flex-wrap:nowrap"><input class="in" placeholder="Otra versión (ej.: logo Pokémon Day)" style="flex:1;min-width:0" autocomplete="off"><button class="btn small" data-act="addver">Agregar</button></div></div>';
+}
+
 /* ============ Cartas de Pocket (juego digital): se esconden ============ */
 var POCKET_RE = /^(?:[A-Z]\d+[a-z]?|P-[A-Z])-/;
 function isPocketId(id, lang) {
@@ -260,7 +291,8 @@ function blocksHtml(list) {
     cards.forEach(function (c) { LANGS.forEach(function (l) { if (c.have && c.have[l.c]) langsTotal++; }); });
     var rows = cards.map(function (c) {
       var on = LANGS.filter(function (l) { return c.have && c.have[l.c]; }).map(function (l) {
-        return '<span class="badge have' + (l.c === 'ja' ? ' ja' : (l.c === 'en' ? '' : ' x')) + '">' + l.s + '</span>';
+        var vs = versShort(c, l.c);
+        return '<span class="badge have' + (l.c === 'ja' ? ' ja' : (l.c === 'en' ? '' : ' x')) + '"' + (vs ? ' style="padding:0 8px"' : '') + '>' + l.s + (vs ? '·' + esc(vs) : '') + '</span>';
       }).join('');
       return '<button class="brow" data-act="open" data-id="' + c.uid + '"><div style="min-width:0"><div class="tname">' + esc(c.name) + (c.number ? ' <span>' + esc(c.number) + '</span>' : '') + '</div>' +
         '<div class="muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(c.setName || (c.meta && c.meta.setName) || 'Edición sin datos') + '</div></div>' +
@@ -430,7 +462,7 @@ function frameHtml(c, code, single) {
   return '<section' + (single ? ' id="bigframe"' : '') + ' class="frame' + (has ? ' has' : '') + '"><div class="frame-head"><b>' + esc(l.n) + '</b>' + toggle + '</div>' +
     '<div class="big">' + art + '</div>' +
     (msg ? '<p class="status">' + esc(msg) + '</p>' : '') +
-    '<div class="row" style="justify-content:center">' + acts + '</div></section>';
+    '<div class="row" style="justify-content:center">' + acts + '</div>' + versHtml(c, code) + '</section>';
 }
 
 function langListHtml(c, sel) {
@@ -589,11 +621,21 @@ function resolveDetail() {
           setName: d.set && d.set.name, logo: d.set && d.set.logo ? d.set.logo + '.png' : null,
           rarity: d.rarity, total: d.set && d.set.cardCount && (d.set.cardCount.official || d.set.cardCount.total)
         };
+        c.variants = d.variants || null; c.variantsDone = true;
         if (!c.setName && c.meta.setName) c.setName = c.meta.setName;
         if (!c.number && d.localId) c.number = String(d.localId);
         if (d.image && !c.imgs[lang0]) c.imgs[lang0] = d.image;
         save(); rerenderIfDetail(c.uid);
       }).catch(function () { c.meta = {}; save(); }).then(function () { delete resolving[c.uid + '|meta']; });
+    }
+  }
+  /* variantes que TCGdex conoce (normal, reverse, holo) para cartas ya guardadas */
+  if (c.meta && !c.variantsDone && !resolving[c.uid + '|var']) {
+    var lang1 = c.ids && c.ids.en ? 'en' : (c.ids && c.ids.ja ? 'ja' : null);
+    if (lang1) {
+      resolving[c.uid + '|var'] = true;
+      apiCard(lang1, c.ids[lang1]).then(function (d) { c.variants = d.variants || null; c.variantsDone = true; save(); rerenderIfDetail(c.uid); })
+        .catch(function () { c.variantsDone = true; save(); }).then(function () { delete resolving[c.uid + '|var']; });
     }
   }
   /* imágenes en los demás idiomas: se prueba con el mismo código que en inglés */
@@ -783,6 +825,24 @@ document.addEventListener('click', function (ev) {
         DL[c.uid] = DL[c.uid] === lang ? '' : lang; render();
         var sr = $('.lrow.sel'); if (sr && sr.scrollIntoView) sr.scrollIntoView({ block: 'start' });
       } break;
+    case 'ver':
+      if (c) {
+        var vk = t.getAttribute('data-k');
+        c.vers = c.vers || {}; c.vers[lang] = c.vers[lang] || {};
+        c.vers[lang][vk] = !c.vers[lang][vk];
+        if (c.vers[lang][vk]) { c.have = c.have || {}; c.have[lang] = true; }
+        save(); render();
+      } break;
+    case 'addver': {
+      var inp = t.parentNode.querySelector('input'), nm = inp ? inp.value.trim() : '';
+      if (nm) {
+        S.customVers = S.customVers || [];
+        var dup = S.customVers.concat(VERS.map(function (x) { return x.n; })).some(function (x) { return x.toLowerCase() === nm.toLowerCase(); });
+        if (!dup) { S.customVers.push(nm); save(); }
+        render();
+      }
+      break;
+    }
     case 'sort': S.sort = v; save(); render(); break;
     case 'tab': S.tab = v; save(); render(); break;
     case 'have': if (c) { c.have = c.have || {}; c.have[lang] = !c.have[lang]; save(); render(); } break;

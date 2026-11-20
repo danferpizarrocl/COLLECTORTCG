@@ -142,3 +142,7 @@ nav.tabs button.on { color: var(--accent-text); font-weight: 800; }
 .tag { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
 .brow { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 52px; padding: 8px 0; background: none; border: none; border-top: 1px solid var(--border); color: var(--text); text-align: left; }
 .brow .badges { flex-shrink: 0; max-width: 45%; }
+.vers { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border); }
+.vrow { width: 100%; min-height: 44px; display: flex; align-items: center; gap: 10px; background: none; border: none; padding: 0; color: var(--text); font-size: 14px; text-align: left; }
+.vrow .box { flex-shrink: 0; width: 22px; height: 22px; border-radius: 7px; border: 2px solid var(--border2); display: flex; align-items: center; justify-content: center; }
+.vrow.on .box { background: var(--gold); border-color: var(--gold); color: var(--on-gold); }

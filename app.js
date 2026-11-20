@@ -155,6 +155,28 @@ function apiSearch(lang, name) { return fetchJSON(API + lang + '/cards?name=' + 
 function apiCard(lang, id) { return fetchJSON(API + lang + '/cards/' + encodeURIComponent(id)); }
 function imgSrc(base, size) { return base ? base + '/' + (size || 'low') + '.webp' : null; }
 
+/* ============ Cartas de Pocket (juego digital): se esconden ============ */
+var POCKET_RE = /^(?:[A-Z]\d+[a-z]?|P-[A-Z])-/;
+function isPocketId(id, lang) {
+  var sid = setIdOf(id);
+  if (!sid) return false;
+  var P = S.pocket || {};
+  for (var l in P) if (P[l] && P[l].indexOf(sid) >= 0) return true;
+  return lang !== 'ja' && POCKET_RE.test(String(id));
+}
+function isPocketCard(c) {
+  if (!c.ids) return false;
+  for (var l in c.ids) if (c.ids[l] && isPocketId(c.ids[l], l)) return true;
+  return false;
+}
+function ensurePocket(lang) {
+  S.pocket = S.pocket || {};
+  if (S.pocket[lang]) return Promise.resolve();
+  return fetchJSON(API + lang + '/series/tcgp').then(function (d) {
+    S.pocket[lang] = (d && d.sets ? d.sets : []).map(function (x) { return x.id; }); save();
+  }).catch(function (e) { if (e && e.status) { S.pocket[lang] = []; save(); } });
+}
+
 /* ============ Fecha de lanzamiento (para ordenar) ============ */
 function setIdOf(id) { var i = String(id).lastIndexOf('-'); return i > 0 ? String(id).slice(0, i) : null; }
 var dateBusy = false;
@@ -302,12 +324,17 @@ function badgesHtml(c) {
 
 function vHome() {
   var f = S.filter || 'all';
+  var pocketN = S.cards.filter(isPocketCard).length;
+  if (f === 'Pocket' && !pocketN) f = 'all';
   var list = S.cards.filter(function (c) {
     if (f === 'all') return true;
+    if (f === 'Pocket') return isPocketCard(c);
     if (f === 'Otro') return c.pokemon !== 'Riolu' && c.pokemon !== 'Lucario';
     return c.pokemon === f;
   });
-  var chips = [['all', 'Todos'], ['Riolu', 'Riolu'], ['Lucario', 'Lucario'], ['Otro', 'Otros']].map(function (x) {
+  var chipDefs = [['all', 'Todos'], ['Riolu', 'Riolu'], ['Lucario', 'Lucario'], ['Otro', 'Otros']];
+  if (pocketN) chipDefs.push(['Pocket', 'Pocket (' + pocketN + ')']);
+  var chips = chipDefs.map(function (x) {
     return '<button class="chip' + (f === x[0] ? ' on' : '') + '" data-act="filter" data-v="' + x[0] + '">' + x[1] + '</button>';
   }).join('');
   var tab = S.tab === 'blocks' ? 'blocks' : 'cards';
@@ -435,7 +462,7 @@ function vDetail() {
     if (visibleLangs(c).indexOf(sel) < 0) sel = '';
     frames = langListHtml(c, sel);
   } else {
-    frames = visibleLangs(c).map(function (code) { return frameHtml(c, code); }).join('');
+    frames = visibleLangs(c).filter(function (code) { return code !== 'ja'; }).map(function (code) { return frameHtml(c, code); }).join('');
   }
   var lockBtn = c.unlocked
     ? '<button class="btn block" data-act="lock" data-id="' + c.uid + '">' + svg('lock') + 'Volver a inglés y japonés</button>'
@@ -626,12 +653,16 @@ function doSearch() {
   SV.q = q; SV.auto = false;
   if (!q) { SV.status = 'Escribe un nombre.'; SV.err = true; SV.results = null; render(); return; }
   SV.busy = true; SV.status = ''; SV.results = null; render();
-  apiSearch(SV.lang, q).then(function (list) {
+  var lg = SV.lang;
+  Promise.all([apiSearch(lg, q), ensurePocket(lg)]).then(function (rs) {
+    var list = Array.isArray(rs[0]) ? rs[0] : [];
+    var all = list.length;
+    list = list.filter(function (x) { return !isPocketId(x.id, lg); });
+    var hidden = all - list.length;
     SV.busy = false; SV.err = false;
-    list = Array.isArray(list) ? list : [];
     SV.results = list; SV.shown = Math.min(24, list.length);
     var withImg = list.filter(function (x) { return x.image; }).length;
-    SV.status = list.length ? (list.length + ' cartas encontradas (' + withImg + ' con imagen).') : 'No encontré cartas con ese nombre en ' + langOf(SV.lang).n + '.';
+    SV.status = list.length ? (list.length + ' cartas encontradas (' + withImg + ' con imagen)' + (hidden ? ' · ' + hidden + ' de Pocket ocultas' : '') + '.') : 'No encontré cartas con ese nombre en ' + langOf(SV.lang).n + (hidden ? ' (' + hidden + ' de Pocket ocultas)' : '') + '.';
     render();
   }).catch(function (e) {
     SV.busy = false; SV.err = true; SV.results = null;

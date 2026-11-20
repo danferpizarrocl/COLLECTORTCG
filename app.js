@@ -351,14 +351,15 @@ function frameHtml(c, code, single) {
 }
 
 function langListHtml(c, sel) {
-  return '<div class="card">' + cardTitle('globe', 'Marca los idiomas que tienes') + '<div class="langlist">' +
+  return '<div class="card">' + cardTitle('globe', 'Marca los idiomas que tienes') + '<p class="note" style="margin:0 0 10px">Toca un idioma para ver su carta.</p>' + '<div class="langlist">' +
     visibleLangs(c).map(function (code) {
       var l = langOf(code), has = c.have && c.have[code];
       var tags = ((c.photos && c.photos[code]) ? '<span class="tag">' + svg('img', 14) + 'mi foto</span>' : '') +
         ((c.imgs && c.imgs[code]) ? '<span class="tag">' + svg('card', 14) + 'imagen</span>' : '');
       return '<div class="lrow' + (sel === code ? ' sel' : '') + '">' +
         '<button class="lname" data-act="sel" data-id="' + c.uid + '" data-lang="' + code + '" aria-label="Ver la carta en ' + esc(l.n) + '"><b>' + esc(l.n) + '</b><span class="tags">' + tags + '</span></button>' +
-        '<button class="toggle' + (has ? ' on' : '') + '" data-act="have" data-id="' + c.uid + '" data-lang="' + code + '" aria-pressed="' + (has ? 'true' : 'false') + '"><span class="box">' + (has ? svg('check', 16, 3) : '') + '</span>La tengo</button></div>';
+        '<button class="toggle' + (has ? ' on' : '') + '" data-act="have" data-id="' + c.uid + '" data-lang="' + code + '" aria-pressed="' + (has ? 'true' : 'false') + '"><span class="box">' + (has ? svg('check', 16, 3) : '') + '</span>La tengo</button></div>' +
+        (sel === code ? frameHtml(c, code, true) : '');
     }).join('') + '</div></div>';
 }
 
@@ -375,8 +376,8 @@ function vDetail() {
   var frames;
   if (c.unlocked) {
     var sel = DL[c.uid];
-    if (visibleLangs(c).indexOf(sel) < 0) sel = 'en';
-    frames = frameHtml(c, sel, true) + langListHtml(c, sel);
+    if (visibleLangs(c).indexOf(sel) < 0) sel = '';
+    frames = langListHtml(c, sel);
   } else {
     frames = visibleLangs(c).map(function (code) { return frameHtml(c, code); }).join('');
   }
@@ -685,7 +686,10 @@ document.addEventListener('click', function (ev) {
       go('search'); break;
     case 'linkcancel': var back = SV.link && SV.link.uid; SV.link = null; back ? go('detail', { id: back }) : go('search'); break;
     case 'sel':
-      if (c) { DL[c.uid] = lang; render(); var bf = $('#bigframe'); if (bf && bf.scrollIntoView) bf.scrollIntoView({ block: 'start' }); } break;
+      if (c) {
+        DL[c.uid] = DL[c.uid] === lang ? '' : lang; render();
+        var sr = $('.lrow.sel'); if (sr && sr.scrollIntoView) sr.scrollIntoView({ block: 'start' });
+      } break;
     case 'sort': S.sort = v; save(); render(); break;
     case 'have': if (c) { c.have = c.have || {}; c.have[lang] = !c.have[lang]; save(); render(); } break;
     case 'unlock': if (c) { c.unlocked = true; if (c.miss) c.miss = {}; save(); render(); } break;

@@ -147,7 +147,11 @@ nav.tabs button.on { color: var(--accent-text); font-weight: 800; }
 .vrow { width: 100%; min-height: 44px; display: flex; align-items: center; gap: 10px; background: none; border: none; padding: 0; color: var(--text); font-size: 14px; text-align: left; }
 .vrow .box { flex-shrink: 0; width: 22px; height: 22px; border-radius: 7px; border: 2px solid var(--border2); display: flex; align-items: center; justify-content: center; }
 .vrow.on .box { background: var(--gold); border-color: var(--gold); color: var(--on-gold); }
-.tile.done .art { box-shadow: 0 0 0 3px var(--ok); }
+.ctile { padding: 8px; border: 3px solid transparent; border-radius: 14px; position: relative; }
+.ctile.done { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 16%, transparent); }
+.chk { position: absolute; top: -10px; right: -10px; width: 28px; height: 28px; border-radius: 50%; background: var(--ok); color: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 2; }
+.frame { position: relative; }
+.frame.has { background: color-mix(in srgb, var(--ok) 12%, var(--surface)); }
 .badge.off { opacity: .35; }
 .lrow.off .lname { opacity: .6; }
 .lrow.got { border-color: var(--ok); }

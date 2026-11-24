@@ -398,7 +398,8 @@ function vHome() {
     body = '<div class="card empty"><p>No hay cartas en este filtro.</p></div>';
   } else {
     body = '<div class="grid">' + list.map(function (c) {
-      return '<button class="tile' + (isComplete(c) ? ' done' : '') + '" data-act="open" data-id="' + c.uid + '">' + artHtml(cardThumbSrc(c), c.name) +
+      var done = isComplete(c);
+      return '<button class="tile ctile' + (done ? ' done' : '') + '" data-act="open" data-id="' + c.uid + '">' + (done ? '<span class="chk">' + svg('check', 18, 3) + '</span>' : '') + artHtml(cardThumbSrc(c), c.name) +
         '<div class="tname">' + esc(c.name) + (c.number ? ' <span>' + esc(c.number) + '</span>' : '') + '</div>' +
         '<div class="badges">' + badgesHtml(c) + '</div>' +
         (sortBy !== 'added' && !c.date ? '<div class="muted" style="font-size:11px">sin fecha</div>' : '') + '</button>';
@@ -417,6 +418,8 @@ function pkChips(sel, act) {
 
 function vSearch() {
   var linkBanner = '';
+  if (!SV.link && SV.lang !== 'en' && SV.lang !== 'ja') { SV.lang = 'en'; SV.extra = ''; autoName(); }
+  var useField = SV.pk === 'Otro' || !!SV.link;
   if (SV.link) {
     var lc = findCard(SV.link.uid);
     linkBanner = '<div class="banner">Vinculando <b>' + esc(langOf(SV.link.lang).n) + '</b> a <b>' + esc(lc ? lc.name : '') + '</b>. Elige la carta correcta de la lista.' +
@@ -424,8 +427,8 @@ function vSearch() {
   }
   var langChips = '<button class="chip' + (SV.lang === 'en' ? ' on' : '') + '" data-act="slang" data-v="en">Inglés</button>' +
     '<button class="chip' + (SV.lang === 'ja' ? ' on' : '') + '" data-act="slang" data-v="ja">Japonés</button>' +
-    '<select class="in" id="sextra" style="width:auto;min-width:160px" aria-label="Otro idioma"><option value="">Otro idioma…</option>' +
-    LANGS.filter(function (l) { return !l.base; }).map(function (l) { return '<option value="' + l.c + '"' + (SV.extra === l.c && SV.lang === l.c ? ' selected' : '') + '>' + l.n + '</option>'; }).join('') + '</select>';
+    (SV.link ? '<select class="in" id="sextra" style="width:auto;min-width:160px" aria-label="Otro idioma"><option value="">Otro idioma…</option>' +
+    LANGS.filter(function (l) { return !l.base; }).map(function (l) { return '<option value="' + l.c + '"' + (SV.extra === l.c && SV.lang === l.c ? ' selected' : '') + '>' + l.n + '</option>'; }).join('') + '</select>' : '');
   var res = '';
   if (SV.busy) res = '<p class="status">Buscando…</p>';
   else if (SV.status) res = '<p class="status' + (SV.err ? ' err' : '') + '">' + esc(SV.status) + '</p>';
@@ -443,10 +446,14 @@ function vSearch() {
     '<div class="card">' + cardTitle('search', 'Buscar en TCGdex') +
     '<div class="chips">' + pkChips(SV.pk, 'spk') + '</div>' +
     '<div class="chips">' + langChips + '</div>' +
-    '<label class="f" for="sq">Nombre de la carta</label>' +
-    '<div class="row"><input class="in" id="sq" value="' + esc(SV.q) + '" style="flex:1;min-width:0" autocomplete="off">' +
-    '<button class="btn primary" data-act="dosearch">Buscar</button></div>' +
-    '<p class="note">Para el japonés escribe el nombre en japonés (ya viene puesto para Riolu y Lucario).</p></div>' + res;
+    (useField
+      ? '<label class="f" for="sq">Nombre de la carta</label>' +
+        '<div class="row"><input class="in" id="sq" value="' + esc(SV.q) + '" style="flex:1;min-width:0" autocomplete="off">' +
+        '<button class="btn primary" data-act="dosearch">Buscar</button></div>' +
+        '<p class="note">' + (SV.link ? 'Escribe el nombre como se llama en ese idioma.' : 'Escribe el nombre del Pokémon (en japonés si buscas en japonés).') + '</p>'
+      : '<div style="margin-top:12px"><button class="btn primary block" data-act="dosearch">' + svg('search') + 'Buscar ' + esc(SV.pk) + ' en ' + esc(langOf(SV.lang).n) + '</button></div>' +
+        '<p class="note">La búsqueda usa el nombre de ' + esc(SV.pk) + ' en ' + esc(langOf(SV.lang).n) + ' (' + esc(SV.lang === 'ja' ? POKE[SV.pk].ja : POKE[SV.pk].en) + ').</p>') +
+    '</div>' + res;
 }
 
 var DL = {};
@@ -468,7 +475,7 @@ function frameHtml(c, code, single) {
     '<button class="btn small" data-act="linkstart" data-id="' + c.uid + '" data-lang="' + code + '">' + svg('search', 18) + 'Buscar en ' + esc(l.n) + '</button>' +
     (c.photos && c.photos[code] ? '<button class="btn small danger" data-act="rmfoto" data-id="' + c.uid + '" data-lang="' + code + '">Quitar foto</button>' : '');
   var toggle = single ? '' : '<button class="toggle' + (has ? ' on' : '') + '" data-act="have" data-id="' + c.uid + '" data-lang="' + code + '" aria-pressed="' + (has ? 'true' : 'false') + '"><span class="box">' + (has ? svg('check', 16, 3) : '') + '</span>La tengo</button>';
-  return '<section' + (single ? ' id="bigframe"' : '') + ' class="frame' + (has ? ' has' : '') + '"><div class="frame-head"><b>' + esc(l.n) + '</b>' + toggle + '</div>' +
+  return '<section' + (single ? ' id="bigframe"' : '') + ' class="frame' + (has ? ' has' : '') + '">' + (has ? '<span class="chk">' + svg('check', 18, 3) + '</span>' : '') + '<div class="frame-head"><b>' + esc(l.n) + '</b>' + toggle + '</div>' +
     '<div class="big">' + art + '</div>' +
     (msg ? '<p class="status">' + esc(msg) + '</p>' : '') +
     '<div class="row" style="justify-content:center">' + acts + '</div>' + versHtml(c, code) + '</section>';
@@ -697,8 +704,9 @@ function addFromResult(r) {
 }
 
 function doSearch() {
-  var q = ($('#sq') && $('#sq').value || '').trim();
-  SV.q = q; SV.auto = false;
+  var useField = SV.pk === 'Otro' || !!SV.link;
+  var q = useField ? ($('#sq') && $('#sq').value || '').trim() : (POKE[SV.pk] ? (SV.lang === 'ja' ? POKE[SV.pk].ja : POKE[SV.pk].en) : '');
+  SV.q = q; if (useField) SV.auto = false;
   if (!q) { SV.status = 'Escribe un nombre.'; SV.err = true; SV.results = null; render(); return; }
   SV.busy = true; SV.status = ''; SV.results = null; render();
   var lg = SV.lang;

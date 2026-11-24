@@ -325,12 +325,23 @@ function rerenderSoon() {
 }
 
 /* ============ Vistas ============ */
+/* "La busco" (quiero coleccionarla en ese idioma). Por defecto: inglés y japonés, o los que ya tengo/con mi foto. */
+function isWanted(c, code) {
+  var w = c.want && c.want[code];
+  if (w === true) return true;
+  if (w === false) return false;
+  return !!(langOf(code).base || (c.have && c.have[code]) || (c.photos && c.photos[code]));
+}
+function isComplete(c) {
+  var any = false;
+  for (var i = 0; i < LANGS.length; i++) {
+    var code = LANGS[i].c;
+    if (isWanted(c, code)) { any = true; if (!(c.have && c.have[code])) return false; }
+  }
+  return any;
+}
 function visibleLangs(c) {
-  var out = [];
-  LANGS.forEach(function (l) {
-    if (l.base || c.unlocked || (c.have && c.have[l.c]) || (c.photos && c.photos[l.c])) out.push(l.c);
-  });
-  return out;
+  return LANGS.filter(function (l) { return c.unlocked || l.base || isWanted(c, l.c); }).map(function (l) { return l.c; });
 }
 function cardThumbSrc(c) {
   var order = ['en', 'ja'].concat(LANGS.map(function (l) { return l.c; }));
@@ -346,11 +357,9 @@ function artHtml(src, alt) {
   return '<div class="art"><div class="ph">sin imagen</div></div>';
 }
 function badgesHtml(c) {
-  return LANGS.filter(function (l) {
-    return l.base || (c.have && c.have[l.c]) || (c.photos && c.photos[l.c]);
-  }).map(function (l) { return l.c; }).map(function (code) {
-    var l = langOf(code), on = c.have && c.have[code];
-    return '<span class="badge' + (on ? ' have' + (code === 'ja' ? ' ja' : (code === 'en' ? '' : ' x')) : '') + '">' + l.s + '</span>';
+  return ['en', 'ja'].map(function (code) {
+    var l = langOf(code), on = c.have && c.have[code], want = isWanted(c, code);
+    return '<span class="badge' + (on ? ' have' + (code === 'ja' ? ' ja' : '') : (want ? '' : ' off')) + '">' + l.s + '</span>';
   }).join('');
 }
 
@@ -389,7 +398,7 @@ function vHome() {
     body = '<div class="card empty"><p>No hay cartas en este filtro.</p></div>';
   } else {
     body = '<div class="grid">' + list.map(function (c) {
-      return '<button class="tile" data-act="open" data-id="' + c.uid + '">' + artHtml(cardThumbSrc(c), c.name) +
+      return '<button class="tile' + (isComplete(c) ? ' done' : '') + '" data-act="open" data-id="' + c.uid + '">' + artHtml(cardThumbSrc(c), c.name) +
         '<div class="tname">' + esc(c.name) + (c.number ? ' <span>' + esc(c.number) + '</span>' : '') + '</div>' +
         '<div class="badges">' + badgesHtml(c) + '</div>' +
         (sortBy !== 'added' && !c.date ? '<div class="muted" style="font-size:11px">sin fecha</div>' : '') + '</button>';
@@ -466,14 +475,17 @@ function frameHtml(c, code, single) {
 }
 
 function langListHtml(c, sel) {
-  return '<div class="card">' + cardTitle('globe', 'Marca los idiomas que tienes') + '<p class="note" style="margin:0 0 10px">Toca un idioma para ver su carta.</p>' + '<div class="langlist">' +
+  return '<div class="card">' + cardTitle('globe', 'Idiomas') +
+    '<p class="note" style="margin:0 0 10px">Elige en cuáles la buscas. Cuando la tengas, tiquéala. Toca un idioma para ver su carta.</p><div class="langlist">' +
     visibleLangs(c).map(function (code) {
-      var l = langOf(code), has = c.have && c.have[code];
+      var l = langOf(code), want = isWanted(c, code), has = !!(c.have && c.have[code]);
       var tags = ((c.photos && c.photos[code]) ? '<span class="tag">' + svg('img', 14) + 'mi foto</span>' : '') +
-        ((c.imgs && c.imgs[code]) ? '<span class="tag">' + svg('card', 14) + 'imagen</span>' : '');
-      return '<div class="lrow' + (sel === code ? ' sel' : '') + '">' +
+        ((c.imgs && c.imgs[code]) ? '<span class="tag">' + svg('card', 14) + 'imagen</span>' : '') +
+        ((c.miss && c.miss[code]) ? '<span class="tag">no está con el mismo código</span>' : '');
+      return '<div class="lrow' + (sel === code ? ' sel' : '') + (has ? ' got' : '') + (want ? '' : ' off') + '">' +
         '<button class="lname" data-act="sel" data-id="' + c.uid + '" data-lang="' + code + '" aria-label="Ver la carta en ' + esc(l.n) + '"><b>' + esc(l.n) + '</b><span class="tags">' + tags + '</span></button>' +
-        '<button class="toggle' + (has ? ' on' : '') + '" data-act="have" data-id="' + c.uid + '" data-lang="' + code + '" aria-pressed="' + (has ? 'true' : 'false') + '"><span class="box">' + (has ? svg('check', 16, 3) : '') + '</span>La tengo</button></div>' +
+        '<button class="want' + (want ? ' on' : '') + '" data-act="want" data-id="' + c.uid + '" data-lang="' + code + '" aria-pressed="' + (want ? 'true' : 'false') + '"' + (has ? ' disabled' : '') + '>' + (want ? 'La busco' : 'Buscar') + '</button>' +
+        (want ? '<button class="toggle' + (has ? ' on' : '') + '" data-act="have" data-id="' + c.uid + '" data-lang="' + code + '" aria-pressed="' + (has ? 'true' : 'false') + '"><span class="box">' + (has ? svg('check', 16, 3) : '') + '</span>La tengo</button>' : '') + '</div>' +
         (sel === code ? frameHtml(c, code, true) : '');
     }).join('') + '</div></div>';
 }
@@ -487,21 +499,16 @@ function vDetail() {
   var info = '<div class="card">' + cardTitle('card', 'Datos de la carta') + '<div class="meta">' +
     (m.logo ? '<img class="logo" src="' + esc(m.logo) + '" alt="Logo de la edición" onerror="this.remove()">' : '') +
     '<div><div class="sets">' + esc(c.setName || m.setName || 'Edición sin datos') + '</div>' +
-    '<div class="muted">' + (c.number ? 'N.º ' + esc(c.number) : '') + (m.total ? ' / ' + esc(m.total) : '') + (m.rarity ? ' · ' + esc(m.rarity) : '') + '</div></div></div></div>';
-  var frames;
-  if (c.unlocked) {
-    var sel = DL[c.uid];
-    if (visibleLangs(c).indexOf(sel) < 0) sel = '';
-    frames = langListHtml(c, sel);
-  } else {
-    frames = visibleLangs(c).filter(function (code) { return code !== 'ja'; }).map(function (code) { return frameHtml(c, code); }).join('');
-  }
+    '<div class="muted">' + (c.number ? 'N.º ' + esc(c.number) : '') + (m.total ? ' / ' + esc(m.total) : '') + (m.rarity ? ' · ' + esc(m.rarity) : '') + '</div></div></div>' +
+    (c.variants ? '<p class="note" style="margin:10px 0 0">Variantes que existen: ' + esc([c.variants.normal ? 'Normal' : '', c.variants.reverse ? 'Reverse holo' : '', c.variants.holo ? 'Holo' : '', c.variants.firstEdition ? '1.ª edición' : ''].filter(Boolean).join(' · ') || 'sin datos') + '. Las ediciones especiales las agregas tú en cada idioma.</p>' : '') + '</div>';
+  var sel = DL[c.uid];
+  if (visibleLangs(c).indexOf(sel) < 0) sel = '';
   var lockBtn = c.unlocked
     ? '<button class="btn block" data-act="lock" data-id="' + c.uid + '">' + svg('lock') + 'Volver a inglés y japonés</button>'
     : '<button class="btn block gold-line" data-act="unlock" data-id="' + c.uid + '">' + svg('unlock') + 'Desbloquear todos los idiomas</button>';
   return head + info + '<div class="card">' + cardTitle('globe', 'Idiomas de esta carta') +
-    '<p class="note" style="margin:0 0 12px">Por defecto: inglés y japonés. Si coleccionas esta carta en todos los idiomas, desbloquéala.</p>' + lockBtn + '</div>' + frames +
-    '<button class="btn danger block" data-act="delcard" data-id="' + c.uid + '">Quitar esta carta de mi colección</button>' +
+    '<p class="note" style="margin:0 0 12px">Por defecto: inglés y japonés. Desbloquea todos los idiomas para elegir en cuáles la buscas.</p>' + lockBtn + '</div>' +
+    langListHtml(c, sel) + '<button class="btn danger block" data-act="delcard" data-id="' + c.uid + '">Quitar esta carta de mi colección</button>' +
     '<input type="file" id="filein" accept="image/*" hidden>';
 }
 
@@ -638,26 +645,25 @@ function resolveDetail() {
         .catch(function () { c.variantsDone = true; save(); }).then(function () { delete resolving[c.uid + '|var']; });
     }
   }
-  /* imágenes en los demás idiomas: se prueba con el mismo código que en inglés */
-  if (c.unlocked && c.ids && c.ids.en) {
-    LANGS.forEach(function (l) {
-      if (l.base) return;
-      var k = c.uid + '|' + l.c;
-      if ((c.ids && c.ids[l.c]) || (c.miss && c.miss[l.c]) || resolving[k]) return;
-      resolving[k] = true;
-      c.loading = c.loading || {}; c.loading[l.c] = true;
-      apiCard(l.c, c.ids.en).then(function (d) {
-        c.ids[l.c] = d.id || c.ids.en;
-        if (d.image) c.imgs[l.c] = d.image;
-      }).catch(function (e) {
-        if (e && e.status === 404) { c.miss = c.miss || {}; c.miss[l.c] = true; }
-        else if (e && e.status && e.status >= 400) { c.miss = c.miss || {}; c.miss[l.c] = true; }
-      }).then(function () {
-        delete resolving[k]; if (c.loading) delete c.loading[l.c];
-        save(); rerenderIfDetail(c.uid);
-      });
-    });
-  }
+  /* imágenes en los idiomas que busco: se prueba con el mismo código que en inglés */
+  LANGS.forEach(function (l) { if (isWanted(c, l.c)) resolveLang(c, l.c); });
+}
+function resolveLang(c, code) {
+  var l = langOf(code);
+  if (!l || l.base || !c.ids || !c.ids.en) return;
+  var k = c.uid + '|' + code;
+  if (c.ids[code] || (c.miss && c.miss[code]) || resolving[k]) return;
+  resolving[k] = true;
+  c.loading = c.loading || {}; c.loading[code] = true;
+  apiCard(code, c.ids.en).then(function (d) {
+    c.ids[code] = d.id || c.ids.en;
+    if (d.image) c.imgs[code] = d.image;
+  }).catch(function (e) {
+    if (e && e.status && e.status >= 400) { c.miss = c.miss || {}; c.miss[code] = true; }
+  }).then(function () {
+    delete resolving[k]; if (c.loading) delete c.loading[code];
+    save(); rerenderIfDetail(c.uid);
+  });
 }
 function rerenderIfDetail(id) { if (view.name === 'detail' && view.id === id) rerenderSoon(); }
 
@@ -823,6 +829,7 @@ document.addEventListener('click', function (ev) {
     case 'sel':
       if (c) {
         DL[c.uid] = DL[c.uid] === lang ? '' : lang; render();
+        if (DL[c.uid]) resolveLang(c, lang);
         var sr = $('.lrow.sel'); if (sr && sr.scrollIntoView) sr.scrollIntoView({ block: 'start' });
       } break;
     case 'ver':
@@ -830,7 +837,7 @@ document.addEventListener('click', function (ev) {
         var vk = t.getAttribute('data-k');
         c.vers = c.vers || {}; c.vers[lang] = c.vers[lang] || {};
         c.vers[lang][vk] = !c.vers[lang][vk];
-        if (c.vers[lang][vk]) { c.have = c.have || {}; c.have[lang] = true; }
+        if (c.vers[lang][vk]) { c.have = c.have || {}; c.have[lang] = true; c.want = c.want || {}; c.want[lang] = true; }
         save(); render();
       } break;
     case 'addver': {
@@ -845,7 +852,16 @@ document.addEventListener('click', function (ev) {
     }
     case 'sort': S.sort = v; save(); render(); break;
     case 'tab': S.tab = v; save(); render(); break;
-    case 'have': if (c) { c.have = c.have || {}; c.have[lang] = !c.have[lang]; save(); render(); } break;
+    case 'have': if (c) {
+      c.have = c.have || {}; c.have[lang] = !c.have[lang];
+      if (c.have[lang]) { c.want = c.want || {}; c.want[lang] = true; }
+      save(); render();
+    } break;
+    case 'want': if (c && !(c.have && c.have[lang])) {
+      c.want = c.want || {}; c.want[lang] = !isWanted(c, lang);
+      save(); render();
+      if (c.want[lang]) resolveLang(c, lang);
+    } break;
     case 'unlock': if (c) { c.unlocked = true; if (c.miss) c.miss = {}; save(); render(); } break;
     case 'lock': if (c) { c.unlocked = false; save(); render(); } break;
     case 'delcard':

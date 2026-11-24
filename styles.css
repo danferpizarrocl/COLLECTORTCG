@@ -103,7 +103,8 @@ label.f { display: block; font-size: 13px; font-weight: 700; margin: 12px 0 6px;
 .empty p { color: var(--muted); margin: 0 0 16px; }
 
 .frame { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 14px; margin-bottom: 14px; }
-.frame.has { border-color: var(--gold); }
+.frame.has { border: 2px solid var(--ok); padding: 13px; }
+.frame.has .art { box-shadow: 0 0 0 3px var(--ok); }
 .frame-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
 .frame-head b { font-size: 16px; }
 .big { max-width: 320px; margin: 0 auto 12px; }
@@ -146,3 +147,11 @@ nav.tabs button.on { color: var(--accent-text); font-weight: 800; }
 .vrow { width: 100%; min-height: 44px; display: flex; align-items: center; gap: 10px; background: none; border: none; padding: 0; color: var(--text); font-size: 14px; text-align: left; }
 .vrow .box { flex-shrink: 0; width: 22px; height: 22px; border-radius: 7px; border: 2px solid var(--border2); display: flex; align-items: center; justify-content: center; }
 .vrow.on .box { background: var(--gold); border-color: var(--gold); color: var(--on-gold); }
+.tile.done .art { box-shadow: 0 0 0 3px var(--ok); }
+.badge.off { opacity: .35; }
+.lrow.off .lname { opacity: .6; }
+.lrow.got { border-color: var(--ok); }
+.lrow.sel.got { border-color: var(--ok); }
+.want { min-height: 44px; padding: 0 12px; border-radius: 14px; border: 1px solid var(--border2); background: transparent; font-weight: 700; font-size: 13px; color: var(--muted); flex-shrink: 0; }
+.want.on { border-color: var(--gold); color: var(--accent-text); background: var(--surface2); }
+.want:disabled { opacity: .7; }

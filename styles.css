@@ -159,3 +159,9 @@ nav.tabs button.on { color: var(--accent-text); font-weight: 800; }
 .want { min-height: 44px; padding: 0 12px; border-radius: 14px; border: 1px solid var(--border2); background: transparent; font-weight: 700; font-size: 13px; color: var(--muted); flex-shrink: 0; }
 .want.on { border-color: var(--gold); color: var(--accent-text); background: var(--surface2); }
 .want:disabled { opacity: .7; }
+
+.bkbox { position: fixed; left: 12px; right: 12px; bottom: calc(88px + env(safe-area-inset-bottom)); z-index: 20; max-width: 696px; margin: 0 auto; background: var(--surface); border: 2px solid var(--gold); border-radius: 18px; padding: 12px 14px; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+.bk-t { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.bk-s { font-size: 12px; color: var(--muted); }
+.bk-l { margin: 6px 0 10px; padding-left: 18px; font-size: 13px; max-height: 24vh; overflow-y: auto; }
+.bk-l li { margin-bottom: 3px; }

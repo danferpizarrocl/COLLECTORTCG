@@ -72,6 +72,30 @@ function load() {
 }
 var S = load();
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+
+/* ============ Aviso de respaldo (cambios pendientes) ============ */
+function cdesc(c) {
+  var bits = [c.name];
+  if (c.number) bits.push('N.º ' + c.number);
+  var ed = c.setName || (c.meta && c.meta.setName); if (ed) bits.push(ed);
+  if (c.meta && c.meta.rarity) bits.push(c.meta.rarity);
+  return bits.join(' · ');
+}
+function note(txt) {
+  S.pend = S.pend || [];
+  S.pend.push({ t: Date.now(), x: txt });
+  S.pendHide = false;
+}
+function pendHtml() {
+  var p = S.pend || [];
+  if (!p.length || S.pendHide) return '';
+  var last = p.slice(-6).reverse();
+  return '<div class="bkbox" role="alert"><div class="bk-t">' + svg('save', 18) + '<b>Te recomiendo hacer un respaldo</b></div>' +
+    '<div class="bk-s">Cambios desde el último respaldo (' + p.length + '):</div><ul class="bk-l">' +
+    last.map(function (e) { return '<li>' + esc(e.x) + '</li>'; }).join('') +
+    (p.length > 6 ? '<li class="muted">… y ' + (p.length - 6) + ' más</li>' : '') + '</ul>' +
+    '<div class="row"><button class="btn primary small" data-act="export">Exportar</button><button class="btn small" data-act="bkhide">Después</button></div></div>';
+}
 function findCard(id) { for (var i = 0; i < S.cards.length; i++) if (S.cards[i].uid === id) return S.cards[i]; return null; }
 
 /* ============ Fotos propias (IndexedDB) ============ */
@@ -365,15 +389,15 @@ function badgesHtml(c) {
 
 function vHome() {
   var f = S.filter || 'all';
+  if (f === 'Otro') f = 'all';
   var pocketN = S.cards.filter(isPocketCard).length;
   if (f === 'Pocket' && !pocketN) f = 'all';
   var list = S.cards.filter(function (c) {
     if (f === 'all') return true;
     if (f === 'Pocket') return isPocketCard(c);
-    if (f === 'Otro') return c.pokemon !== 'Riolu' && c.pokemon !== 'Lucario';
     return c.pokemon === f;
   });
-  var chipDefs = [['all', 'Todos'], ['Riolu', 'Riolu'], ['Lucario', 'Lucario'], ['Otro', 'Otros']];
+  var chipDefs = [['all', 'Todos'], ['Riolu', 'Riolu'], ['Lucario', 'Lucario']];
   if (pocketN) chipDefs.push(['Pocket', 'Pocket (' + pocketN + ')']);
   var chips = chipDefs.map(function (x) {
     return '<button class="chip' + (f === x[0] ? ' on' : '') + '" data-act="filter" data-v="' + x[0] + '">' + x[1] + '</button>';
@@ -411,7 +435,7 @@ function vHome() {
 }
 
 function pkChips(sel, act) {
-  return ['Riolu', 'Lucario', 'Otro'].map(function (p) {
+  return ['Riolu', 'Lucario'].map(function (p) {
     return '<button class="chip' + (sel === p ? ' on' : '') + '" data-act="' + act + '" data-v="' + p + '">' + p + '</button>';
   }).join('');
 }
@@ -419,7 +443,7 @@ function pkChips(sel, act) {
 function vSearch() {
   var linkBanner = '';
   if (!SV.link && SV.lang !== 'en' && SV.lang !== 'ja') { SV.lang = 'en'; SV.extra = ''; autoName(); }
-  var useField = SV.pk === 'Otro' || !!SV.link;
+  var useField = !!SV.link;
   if (SV.link) {
     var lc = findCard(SV.link.uid);
     linkBanner = '<div class="banner">Vinculando <b>' + esc(langOf(SV.link.lang).n) + '</b> a <b>' + esc(lc ? lc.name : '') + '</b>. Elige la carta correcta de la lista.' +
@@ -453,7 +477,7 @@ function vSearch() {
         '<p class="note">' + (SV.link ? 'Escribe el nombre como se llama en ese idioma.' : 'Escribe el nombre del Pokémon (en japonés si buscas en japonés).') + '</p>'
       : '<div style="margin-top:12px"><button class="btn primary block" data-act="dosearch">' + svg('search') + 'Buscar ' + esc(SV.pk) + ' en ' + esc(langOf(SV.lang).n) + '</button></div>' +
         '<p class="note">La búsqueda usa el nombre de ' + esc(SV.pk) + ' en ' + esc(langOf(SV.lang).n) + ' (' + esc(SV.lang === 'ja' ? POKE[SV.pk].ja : POKE[SV.pk].en) + ').</p>') +
-    '</div>' + res;
+    '</div>' + res + (SV.link ? '' : '<div class="card"><p class="note" style="margin:0 0 10px">¿No encuentras la carta o no tiene imagen?</p><button class="btn block" data-act="tomanual">' + svg('plus') + 'Agregar a mano (con tu foto)</button></div>') ;
 }
 
 var DL = {};
@@ -595,7 +619,7 @@ function render() {
     case 'backup': html = vBackup(); break;
     default: html = vHome();
   }
-  $('#app').innerHTML = html + nav();
+  $('#app').innerHTML = html + pendHtml() + nav();
   fillPhotos();
   setupSentinel();
   if (view.name === 'detail') resolveDetail();
@@ -686,6 +710,7 @@ function addFromResult(r) {
       lc.ids[SV.link.lang] = r.id;
       if (r.image) lc.imgs[SV.link.lang] = r.image;
       if (lc.miss) delete lc.miss[SV.link.lang];
+      note('Vinculada ' + langOf(SV.link.lang).n + ': ' + cdesc(lc));
       save(); ensureDates();
       var back = lc.uid; SV.link = null;
       go('detail', { id: back });
@@ -699,12 +724,13 @@ function addFromResult(r) {
   card.ids[lang] = r.id;
   if (r.image) card.imgs[lang] = r.image;
   S.cards.unshift(card);
+  note('Carta agregada: ' + cdesc(card) + ' · ' + langOf(lang).n);
   save(); ensureDates();
   render();
 }
 
 function doSearch() {
-  var useField = SV.pk === 'Otro' || !!SV.link;
+  var useField = !!SV.link;
   var q = useField ? ($('#sq') && $('#sq').value || '').trim() : (POKE[SV.pk] ? (SV.lang === 'ja' ? POKE[SV.pk].ja : POKE[SV.pk].en) : '');
   SV.q = q; if (useField) SV.auto = false;
   if (!q) { SV.status = 'Escribe un nombre.'; SV.err = true; SV.results = null; render(); return; }
@@ -775,14 +801,15 @@ function saveManual() {
   Promise.all(jobs).then(function () {
     var extras = langs.some(function (l) { return !langOf(l).base; });
     if (extras) c.unlocked = true;
-    S.cards.unshift(c); save();
+    S.cards.unshift(c); note('Carta agregada a mano: ' + cdesc(c) + ' · ' + langs.map(function (l) { return langOf(l).n; }).join(', ')); save();
     AV = { pk: AV.pk, langs: { en: true, ja: true }, photos: {}, name: '', set: '', block: '', num: '', msg: '' };
     go('detail', { id: c.uid });
   }).catch(function () { AV.msg = 'No pude guardar las fotos en el teléfono.'; render(); });
 }
 
 function exportBackup() {
-  var msg = $('#bkmsg'); msg.textContent = 'Preparando respaldo…';
+  var msg = $('#bkmsg') || { textContent: '' }; msg.textContent = 'Preparando respaldo…';
+  var keepPend = S.pend, keepHide = S.pendHide; S.pend = []; S.pendHide = false;
   fotoKeys().then(function (keys) {
     keys = keys || [];
     var out = { app: APP_NAME, version: APP_VERSION, fecha: new Date().toISOString(), estado: S, fotos: {} };
@@ -795,8 +822,9 @@ function exportBackup() {
     a.href = URL.createObjectURL(blob);
     a.download = 'myctcg-respaldo-' + new Date().toISOString().slice(0, 10) + '.json';
     document.body.appendChild(a); a.click(); a.remove();
-    msg.textContent = 'Respaldo descargado.';
-  }).catch(function () { msg.textContent = 'No pude armar el respaldo.'; msg.className = 'status err'; });
+    msg.textContent = 'Respaldo descargado.'; save(); render();
+    var m2 = $('#bkmsg'); if (m2) m2.textContent = 'Respaldo descargado.';
+  }).catch(function () { S.pend = keepPend; S.pendHide = keepHide; msg.textContent = 'No pude armar el respaldo.'; msg.className = 'status err'; });
 }
 function importBackup(file) {
   var msg = $('#bkmsg'); msg.textContent = 'Leyendo archivo…';
@@ -830,7 +858,7 @@ document.addEventListener('click', function (ev) {
     case 'dosearch': doSearch(); break;
     case 'pick': addFromResult(SV.results[+t.getAttribute('data-i')]); break;
     case 'linkstart':
-      SV.link = { uid: id, lang: lang }; SV.lang = lang; SV.pk = c ? (c.pokemon === 'Riolu' || c.pokemon === 'Lucario' ? c.pokemon : 'Otro') : 'Riolu';
+      SV.link = { uid: id, lang: lang }; SV.lang = lang; SV.pk = c ? (c.pokemon === 'Riolu' || c.pokemon === 'Lucario' ? c.pokemon : 'Riolu') : 'Riolu';
       SV.auto = true; SV.q = ''; autoName(); if (!SV.q && c) SV.q = c.name; SV.results = null; SV.status = '';
       go('search'); break;
     case 'linkcancel': var back = SV.link && SV.link.uid; SV.link = null; back ? go('detail', { id: back }) : go('search'); break;
@@ -846,6 +874,8 @@ document.addEventListener('click', function (ev) {
         c.vers = c.vers || {}; c.vers[lang] = c.vers[lang] || {};
         c.vers[lang][vk] = !c.vers[lang][vk];
         if (c.vers[lang][vk]) { c.have = c.have || {}; c.have[lang] = true; c.want = c.want || {}; c.want[lang] = true; }
+        var vn = vk; versList().forEach(function (x) { if (x.k === vk) vn = x.n; });
+        note((c.vers[lang][vk] ? 'Versión marcada: ' : 'Versión desmarcada: ') + vn + ' · ' + cdesc(c) + ' · ' + langOf(lang).n);
         save(); render();
       } break;
     case 'addver': {
@@ -853,7 +883,7 @@ document.addEventListener('click', function (ev) {
       if (nm) {
         S.customVers = S.customVers || [];
         var dup = S.customVers.concat(VERS.map(function (x) { return x.n; })).some(function (x) { return x.toLowerCase() === nm.toLowerCase(); });
-        if (!dup) { S.customVers.push(nm); save(); }
+        if (!dup) { S.customVers.push(nm); note('Nueva versión creada: ' + nm); save(); }
         render();
       }
       break;
@@ -863,10 +893,12 @@ document.addEventListener('click', function (ev) {
     case 'have': if (c) {
       c.have = c.have || {}; c.have[lang] = !c.have[lang];
       if (c.have[lang]) { c.want = c.want || {}; c.want[lang] = true; }
+      note((c.have[lang] ? 'La tengo: ' : 'Ya no la tengo: ') + cdesc(c) + ' · ' + langOf(lang).n);
       save(); render();
     } break;
     case 'want': if (c && !(c.have && c.have[lang])) {
       c.want = c.want || {}; c.want[lang] = !isWanted(c, lang);
+      note((c.want[lang] ? 'La busco: ' : 'Dejé de buscarla: ') + cdesc(c) + ' · ' + langOf(lang).n);
       save(); render();
       if (c.want[lang]) resolveLang(c, lang);
     } break;
@@ -875,11 +907,12 @@ document.addEventListener('click', function (ev) {
     case 'delcard':
       if (c && confirm('¿Quitar esta carta de tu colección? Sus fotos propias también se borran.')) {
         Object.keys(c.photos || {}).forEach(function (l) { fotoClearUrl(c.uid + '|' + l); fotoDel(c.uid + '|' + l); });
+        note('Carta quitada: ' + cdesc(c));
         S.cards = S.cards.filter(function (x) { return x.uid !== c.uid; }); save(); go('home');
       } break;
     case 'upload': pendingUpload = { mode: 'card', uid: id, lang: lang }; $('#filein').click(); break;
     case 'rmfoto':
-      if (c) { fotoClearUrl(c.uid + '|' + lang); fotoDel(c.uid + '|' + lang); delete c.photos[lang]; save(); render(); } break;
+      if (c) { fotoClearUrl(c.uid + '|' + lang); fotoDel(c.uid + '|' + lang); delete c.photos[lang]; note('Foto quitada: ' + cdesc(c) + ' · ' + langOf(lang).n); save(); render(); } break;
     case 'apk': AV.pk = v; render(); break;
     case 'alang': AV.langs[v] = !AV.langs[v]; syncAdd(); render(); break;
     case 'apick': syncAdd(); pendingUpload = { mode: 'add', lang: lang }; $('#filein').click(); break;
@@ -887,6 +920,8 @@ document.addEventListener('click', function (ev) {
     case 'covall': COV.all = !COV.all; render(); break;
     case 'covrun': runCoverage(); break;
     case 'export': exportBackup(); break;
+    case 'bkhide': S.pendHide = true; save(); render(); break;
+    case 'tomanual': AV.pk = SV.pk; AV.name = ''; go('add'); break;
     case 'import': $('#bkin').click(); break;
   }
 });
@@ -905,7 +940,7 @@ document.addEventListener('change', function (ev) {
       if (p.mode === 'card') {
         var c = findCard(p.uid); if (!c) return;
         var k = c.uid + '|' + p.lang;
-        return fotoPut(k, blob).then(function () { fotoClearUrl(k); c.photos = c.photos || {}; c.photos[p.lang] = true; save(); render(); });
+        return fotoPut(k, blob).then(function () { fotoClearUrl(k); c.photos = c.photos || {}; c.photos[p.lang] = true; note('Foto propia subida: ' + cdesc(c) + ' · ' + langOf(p.lang).n); save(); render(); });
       }
       AV.photos[p.lang] = blob; render();
     }).catch(function (e) { alert(e.message || 'No pude guardar la foto'); });
